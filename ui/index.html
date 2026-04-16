@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hangul Zip</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f5f5f7;
+        --fg: #1d1d1f;
+        --muted: #6e6e73;
+        --card: #ffffff;
+        --border: #d2d2d7;
+        --accent: #0071e3;
+        --accent-bg: #e8f2ff;
+        --ok: #1d8a3a;
+        --err: #d70015;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1c1e;
+          --fg: #f5f5f7;
+          --muted: #98989d;
+          --card: #2c2c2e;
+          --border: #3a3a3c;
+          --accent-bg: #1e3a5f;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0; height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro", sans-serif;
+        color: var(--fg);
+        background: var(--bg);
+      }
+      body {
+        display: flex; flex-direction: column;
+        padding: 20px;
+        gap: 16px;
+      }
+      .drop {
+        flex: 0 0 auto;
+        border: 2px dashed var(--border);
+        border-radius: 12px;
+        padding: 40px 20px;
+        text-align: center;
+        background: var(--card);
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .drop.over {
+        border-color: var(--accent);
+        background: var(--accent-bg);
+      }
+      .drop h1 {
+        margin: 0 0 8px;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .drop p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .mode {
+        display: flex;
+        justify-content: center;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 3px;
+        gap: 2px;
+      }
+      .mode label {
+        flex: 1;
+        text-align: center;
+        padding: 6px 10px;
+        font-size: 13px;
+        color: var(--muted);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .mode input { display: none; }
+      .mode input:checked + span {
+        background: var(--accent);
+        color: #fff;
+        display: block;
+        border-radius: 6px;
+        padding: 6px 10px;
+        margin: -6px -10px;
+      }
+      .log {
+        flex: 1 1 auto;
+        min-height: 0;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+        overflow-y: auto;
+      }
+      .log .entry { padding: 3px 0; white-space: pre-wrap; word-break: break-all; }
+      .log .entry.info { color: var(--muted); }
+      .log .entry.file { color: var(--muted); }
+      .log .entry.converted { color: var(--fg); }
+      .log .entry.ok { color: var(--ok); }
+      .log .entry.err { color: var(--err); }
+      .log .empty { color: var(--muted); font-style: italic; }
+      .log .badge {
+        display: inline-block;
+        background: var(--accent);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 1px 6px;
+        border-radius: 10px;
+        margin-right: 6px;
+        letter-spacing: 0.3px;
+        vertical-align: 1px;
+      }
+      .log .badge.plain {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="mode">
+      <label><input type="radio" name="mode" value="rename"><span>Rename only</span></label>
+      <label><input type="radio" name="mode" value="zip" checked><span>Rename + zip</span></label>
+    </div>
+    <div id="drop" class="drop">
+      <h1>Drop a folder here</h1>
+      <p>Renames NFD → NFC on disk, then optionally creates a Windows-compatible zip.</p>
+    </div>
+    <div id="log" class="log">
+      <div class="empty">No activity yet.</div>
+    </div>
+    <script>
+      const drop = document.getElementById('drop');
+      const logEl = document.getElementById('log');
+      let logPopulated = false;
+
+      function log(msg, cls) {
+        if (!logPopulated) {
+          logEl.innerHTML = '';
+          logPopulated = true;
+        }
+        const div = document.createElement('div');
+        div.className = 'entry ' + (cls || 'info');
+        div.textContent = msg;
+        logEl.prepend(div);
+      }
+
+      function logEntry(name, isDir, converted) {
+        if (!logPopulated) {
+          logEl.innerHTML = '';
+          logPopulated = true;
+        }
+        const div = document.createElement('div');
+        div.className = 'entry ' + (converted ? 'converted' : 'file');
+        const badge = document.createElement('span');
+        badge.className = 'badge' + (converted ? '' : ' plain');
+        badge.textContent = converted ? 'zipped*' : 'zipped';
+        div.appendChild(badge);
+        div.appendChild(document.createTextNode(name));
+        logEl.prepend(div);
+      }
+
+      function logRename(newName) {
+        if (!logPopulated) {
+          logEl.innerHTML = '';
+          logPopulated = true;
+        }
+        const div = document.createElement('div');
+        div.className = 'entry converted';
+        const badge = document.createElement('span');
+        badge.className = 'badge rename';
+        badge.textContent = 'RENAMED';
+        div.appendChild(badge);
+        div.appendChild(document.createTextNode(newName));
+        logEl.prepend(div);
+      }
+
+      function fmtBytes(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+        return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+      }
+
+      window.addEventListener('error', (e) => {
+        log('JS error: ' + e.message, 'err');
+      });
+
+      async function boot() {
+        if (!window.__TAURI__) {
+          log('window.__TAURI__ is undefined — webview did not inject the API', 'err');
+          return;
+        }
+        const { invoke } = window.__TAURI__.core;
+        const wv = window.__TAURI__.webview.getCurrentWebview();
+        const eventApi = window.__TAURI__.event;
+
+        await eventApi.listen('rename:entry', (e) => {
+          const { new_name } = e.payload;
+          logRename(new_name);
+        });
+        await eventApi.listen('zip:entry', (e) => {
+          const { name, is_dir, converted } = e.payload;
+          logEntry(name, is_dir, converted);
+        });
+
+        function currentMode() {
+          const checked = document.querySelector('input[name="mode"]:checked');
+          return checked ? checked.value : 'zip';
+        }
+
+        async function processPath(path) {
+          const mode = currentMode();
+          const makeZip = mode === 'zip';
+          log((makeZip ? 'processing (rename + zip) ' : 'renaming ') + path + ' …');
+          try {
+            const res = await invoke('process_folder', { path, makeZip });
+            const renamedMsg = 'renamed ' + res.renamed_on_disk +
+              (res.rename_collisions ? ', ' + res.rename_collisions + ' collisions' : '');
+            if (makeZip) {
+              const total = res.files + res.dirs;
+              log(
+                '✓ ' + res.output + '  —  ' + renamedMsg +
+                  '; zipped ' + total + ' (' + res.files + ' files, ' +
+                  res.dirs + ' dirs), ' + fmtBytes(res.bytes),
+                'ok',
+              );
+            } else {
+              log('✓ ' + renamedMsg + ' in ' + path, 'ok');
+            }
+          } catch (e) {
+            log('✗ ' + path + ': ' + e, 'err');
+          }
+        }
+
+        await wv.onDragDropEvent((event) => {
+          const p = event.payload;
+          if (!p) return;
+          if (p.type === 'over' || p.type === 'enter') {
+            drop.classList.add('over');
+          } else if (p.type === 'leave') {
+            drop.classList.remove('over');
+          } else if (p.type === 'drop') {
+            drop.classList.remove('over');
+            const paths = p.paths || [];
+            if (paths.length === 0) {
+              log('drop contained no paths', 'err');
+              return;
+            }
+            logEl.innerHTML = '';
+            logPopulated = true;
+            for (const path of paths) processPath(path);
+          }
+        });
+
+        log('ready — drop a folder', 'ok');
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

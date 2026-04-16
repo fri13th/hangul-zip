@@ -1,0 +1,18 @@
+[package]
+name = "hangul-conv"
+version = "0.1.0"
+edition = "2024"
+description = "Fix Korean filenames when moving from macOS (NFD) to Windows (NFC), with Windows-compatible zip"
+license = "MIT"
+repository = "https://github.com/fri13th/hangul-zip"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+unicode-normalization = "0.1"
+walkdir = "2.5"
+anyhow = "1.0"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[profile.release]
+lto = true
+strip = true
