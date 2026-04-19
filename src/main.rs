@@ -111,6 +111,23 @@ fn cmd_rename(args: RenameArgs) -> Result<()> {
 }
 
 fn process_rename_root(root: &Path, args: &RenameArgs, stats: &mut RenameStats) {
+    let meta = match std::fs::symlink_metadata(root) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("stat {}: {e}", root.display());
+            stats.errors += 1;
+            return;
+        }
+    };
+    if !meta.is_dir() {
+        stats.scanned += 1;
+        if let Err(e) = rename_if_needed(root, args, stats) {
+            eprintln!("error for {}: {e:#}", root.display());
+            stats.errors += 1;
+        }
+        return;
+    }
+
     let walker = WalkDir::new(root)
         .min_depth(0)
         .max_depth(if args.recursive { usize::MAX } else { 1 })
