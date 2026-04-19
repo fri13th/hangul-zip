@@ -37,12 +37,13 @@ async fn process_folder(
     tauri::async_runtime::spawn_blocking(move || {
         let folder = PathBuf::from(&path)
             .canonicalize()
-            .map_err(|e| format!("folder not found: {path}: {e}"))?;
-        if !folder.is_dir() {
+            .map_err(|e| format!("path not found: {path}: {e}"))?;
+        let is_dir = folder.is_dir();
+        if make_zip && !is_dir {
             return Err(format!("not a directory: {}", folder.display()));
         }
 
-        // 1) Rename originals in place (NFD → NFC).
+        // 1) Rename originals in place (NFD → NFC). Accepts file or directory.
         let rename_emitter = app.clone();
         let rename_stats = rename_tree(&folder, |old_path, new_name| {
             let _ = rename_emitter.emit(

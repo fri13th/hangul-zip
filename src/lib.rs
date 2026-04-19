@@ -17,19 +17,29 @@ pub struct RenameStats {
     pub errors: usize,
 }
 
-/// Recursively rename files and directories under `root` from NFD to NFC.
-/// Walks deepest-first so that renaming a directory doesn't invalidate
-/// paths we still need to visit. The `root` itself is not renamed.
+/// Rename files/directories from NFD to NFC.
+///
+/// If `root` is a directory, walks it deepest-first (so renaming a
+/// directory doesn't invalidate paths we still need to visit) and renames
+/// descendants; the directory itself is not renamed. If `root` is a
+/// single file, renames just that file.
 ///
 /// `on_rename(old_path, new_name)` is called for each successful rename.
 pub fn rename_tree(
     root: &Path,
     mut on_rename: impl FnMut(&Path, &str),
 ) -> Result<RenameStats> {
-    anyhow::ensure!(root.is_dir(), "not a directory: {}", root.display());
+    let meta = std::fs::symlink_metadata(root)
+        .with_context(|| format!("stat {}", root.display()))?;
     let mut stats = RenameStats::default();
-    let walker = WalkDir::new(root).min_depth(1).contents_first(true);
 
+    if !meta.is_dir() {
+        stats.scanned += 1;
+        rename_one(root, &mut stats, &mut on_rename)?;
+        return Ok(stats);
+    }
+
+    let walker = WalkDir::new(root).min_depth(1).contents_first(true);
     for entry in walker {
         let entry = match entry {
             Ok(e) => e,
@@ -39,42 +49,50 @@ pub fn rename_tree(
             }
         };
         stats.scanned += 1;
-        let path = entry.path();
-        let file_name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(s) => s,
-            None => continue,
-        };
-        if is_nfc_quick(file_name.chars()) == IsNormalized::Yes {
-            stats.skipped_already_nfc += 1;
-            continue;
-        }
-        let nfc: String = file_name.nfc().collect();
-        if nfc == file_name {
-            stats.skipped_already_nfc += 1;
-            continue;
-        }
-        let parent = path.parent().context("no parent")?;
-        let target = parent.join(&nfc);
-
-        // macOS filesystem lookups are normalization-insensitive, so
-        // target.exists() is always true for an NFD source. Only treat
-        // it as a collision if the target has a different inode.
-        if target.exists() {
-            let src_meta = std::fs::symlink_metadata(path)?;
-            let tgt_meta = std::fs::symlink_metadata(&target)?;
-            let same = src_meta.dev() == tgt_meta.dev() && src_meta.ino() == tgt_meta.ino();
-            if !same {
-                stats.collisions += 1;
-                continue;
-            }
-        }
-
-        std::fs::rename(path, &target)
-            .with_context(|| format!("rename {} -> {}", path.display(), target.display()))?;
-        stats.renamed += 1;
-        on_rename(path, &nfc);
+        rename_one(entry.path(), &mut stats, &mut on_rename)?;
     }
     Ok(stats)
+}
+
+fn rename_one(
+    path: &Path,
+    stats: &mut RenameStats,
+    on_rename: &mut impl FnMut(&Path, &str),
+) -> Result<()> {
+    let file_name = match path.file_name().and_then(|s| s.to_str()) {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+    if is_nfc_quick(file_name.chars()) == IsNormalized::Yes {
+        stats.skipped_already_nfc += 1;
+        return Ok(());
+    }
+    let nfc: String = file_name.nfc().collect();
+    if nfc == file_name {
+        stats.skipped_already_nfc += 1;
+        return Ok(());
+    }
+    let parent = path.parent().context("no parent")?;
+    let target = parent.join(&nfc);
+
+    // macOS filesystem lookups are normalization-insensitive, so
+    // target.exists() is always true for an NFD source. Only treat
+    // it as a collision if the target has a different inode.
+    if target.exists() {
+        let src_meta = std::fs::symlink_metadata(path)?;
+        let tgt_meta = std::fs::symlink_metadata(&target)?;
+        let same = src_meta.dev() == tgt_meta.dev() && src_meta.ino() == tgt_meta.ino();
+        if !same {
+            stats.collisions += 1;
+            return Ok(());
+        }
+    }
+
+    std::fs::rename(path, &target)
+        .with_context(|| format!("rename {} -> {}", path.display(), target.display()))?;
+    stats.renamed += 1;
+    on_rename(path, &nfc);
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

@@ -122,30 +122,104 @@
         color: var(--muted);
         border: 1px solid var(--border);
       }
+      .log-wrap {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .log-header {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .log-clear {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 11px;
+        padding: 3px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .log-clear:hover:not(:disabled) {
+        color: var(--fg);
+        border-color: var(--muted);
+      }
+      .log-clear:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
     </style>
   </head>
   <body>
     <div class="mode">
       <label><input type="radio" name="mode" value="rename"><span>Rename only</span></label>
-      <label><input type="radio" name="mode" value="zip" checked><span>Rename + zip</span></label>
+      <label><input type="radio" name="mode" value="zip"><span>Rename + zip</span></label>
     </div>
     <div id="drop" class="drop">
-      <h1>Drop a folder here</h1>
-      <p>Renames NFD → NFC on disk, then optionally creates a Windows-compatible zip.</p>
+      <h1 id="drop-title">Drop a folder here</h1>
+      <p id="drop-desc">Renames NFD → NFC on disk, then optionally creates a Windows-compatible zip.</p>
     </div>
-    <div id="log" class="log">
-      <div class="empty">No activity yet.</div>
+    <div class="log-wrap">
+      <div class="log-header">
+        <button id="log-clear" class="log-clear" disabled>Clear</button>
+      </div>
+      <div id="log" class="log">
+        <div class="empty">No activity yet.</div>
+      </div>
     </div>
     <script>
       const drop = document.getElementById('drop');
       const logEl = document.getElementById('log');
+      const clearBtn = document.getElementById('log-clear');
       let logPopulated = false;
 
-      function log(msg, cls) {
+      function markLogPopulated() {
         if (!logPopulated) {
           logEl.innerHTML = '';
           logPopulated = true;
         }
+        clearBtn.disabled = false;
+      }
+
+      clearBtn.addEventListener('click', () => {
+        logEl.innerHTML = '<div class="empty">No activity yet.</div>';
+        logPopulated = false;
+        clearBtn.disabled = true;
+      });
+
+      const MODE_KEY = 'hangul-zip:mode';
+      const dropTitle = document.getElementById('drop-title');
+      const dropDesc = document.getElementById('drop-desc');
+
+      function updateDropText(mode) {
+        if (mode === 'rename') {
+          dropTitle.textContent = 'Drop a file or folder here';
+          dropDesc.textContent = 'Renames NFD → NFC on disk, in place.';
+        } else {
+          dropTitle.textContent = 'Drop a folder here';
+          dropDesc.textContent = 'Renames NFD → NFC on disk, then creates a Windows-compatible zip.';
+        }
+      }
+
+      const savedMode = localStorage.getItem(MODE_KEY);
+      const modeToSelect = savedMode === 'rename' || savedMode === 'zip' ? savedMode : 'zip';
+      const modeInput = document.querySelector('input[name="mode"][value="' + modeToSelect + '"]');
+      if (modeInput) modeInput.checked = true;
+      updateDropText(modeToSelect);
+      for (const el of document.querySelectorAll('input[name="mode"]')) {
+        el.addEventListener('change', () => {
+          if (el.checked) {
+            localStorage.setItem(MODE_KEY, el.value);
+            updateDropText(el.value);
+          }
+        });
+      }
+
+      function log(msg, cls) {
+        markLogPopulated();
         const div = document.createElement('div');
         div.className = 'entry ' + (cls || 'info');
         div.textContent = msg;
@@ -153,10 +227,7 @@
       }
 
       function logEntry(name, isDir, converted) {
-        if (!logPopulated) {
-          logEl.innerHTML = '';
-          logPopulated = true;
-        }
+        markLogPopulated();
         const div = document.createElement('div');
         div.className = 'entry ' + (converted ? 'converted' : 'file');
         const badge = document.createElement('span');
@@ -168,10 +239,7 @@
       }
 
       function logRename(newName) {
-        if (!logPopulated) {
-          logEl.innerHTML = '';
-          logPopulated = true;
-        }
+        markLogPopulated();
         const div = document.createElement('div');
         div.className = 'entry converted';
         const badge = document.createElement('span');
@@ -256,6 +324,7 @@
             }
             logEl.innerHTML = '';
             logPopulated = true;
+            clearBtn.disabled = false;
             for (const path of paths) processPath(path);
           }
         });
